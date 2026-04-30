@@ -1,8 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 from database import crear_conexion, obtener_productos_inventario # Importamos desde tu nueva capa de datos
-from datetime import datetime
 from tkcalendar import DateEntry
+from datetime import datetime, timedelta # Necesitamos timedelta para los 7 días
 
 class InventarioModulo:
     def __init__(self, parent):
@@ -20,27 +20,42 @@ class InventarioModulo:
         self.cargar_inventario()
 
     def cargar_inventario(self):
-        """Obtiene datos de database.py y aplica la lógica de alertas."""
         for item in self.tree_inv.get_children(): 
             self.tree_inv.delete(item)
         
-        productos = obtener_productos_inventario() 
-        bajos = [] # Lista para capturar nombres de productos escasos
+        productos = obtener_productos_inventario() #[cite: 2]
+        hoy = datetime.now().date()
+        proximo_vencer = hoy + timedelta(days=7) # Definimos el margen de una semana
         
+        avisos_oferta = []
+
         for row in productos:
-            stock = row[3] 
-            if stock < 5:
-                self.tree_inv.insert("", "end", values=row, tags=("alerta_baja",))
-                bajos.append(row[1]) # Agrega el nombre a la lista
-            else:
-                self.tree_inv.insert("", "end", values=row)
-        
-        # Si hay productos bajos, muestra una ventana emergente
-        if bajos:
-            messagebox.showwarning(
-                "STOCK BAJO", 
-                "Cuidado, productos agotándose:\n" + "\n".join(bajos)
-            )
+            # row[3] es Stock, row[4] es Fecha de Caducidad
+            stock = row[3]
+            fecha_cad = row[4] 
+            tag = ""
+
+            # 1. Lógica de Caducidad Crítica (Ya venció)
+            if fecha_cad and fecha_cad < hoy:
+                tag = "alerta_caducado"
+            
+            # 2. Lógica de Próximo a Caducar (7 días o menos)
+            elif fecha_cad and hoy <= fecha_cad <= proximo_vencer:
+                tag = "alerta_proximo" # Nuevo tag de color
+                # Guardamos el nombre para el aviso de descuento
+                avisos_oferta.append(f"{row[1]} (Vence el {fecha_cad})")
+            
+            # 3. Lógica de Stock Bajo[cite: 2]
+            elif stock < 5:
+                tag = "alerta_baja"
+
+            self.tree_inv.insert("", "end", values=row, tags=(tag,))
+
+        # Mostrar Alerta de Descuento
+        if avisos_oferta:
+            mensaje = "¡OFERTA DE LIQUIDACIÓN (30% DESC)!\n\n"
+            mensaje += "Los siguientes productos vencen pronto:\n" + "\n".join(avisos_oferta)
+            messagebox.showwarning("PROMOCIÓN POR CADUCIDAD", mensaje)
 
     def seleccionar_item(self, event):
         item = self.tree_inv.focus()
@@ -167,8 +182,6 @@ class InventarioModulo:
         self.inv_cat.set("")
         self.inv_caducidad.set("")
 
-    # --- AGREGANDO PARA CONTROLAR CADUCIDAD (Mejora de Claudia) ---
-
     def _crear_ui(self):
         # --- PANEL DE ADMINISTRACIÓN (Formulario) ---
         panel = tk.LabelFrame(self.frame, text="Administrar Productos", padx=10, pady=10)
@@ -214,6 +227,7 @@ class InventarioModulo:
         leyenda_frame.pack(fill="x", padx=10)
         tk.Label(leyenda_frame, text="■ Stock Bajo (<5)", fg="#e74c3c", font=("Arial", 9, "bold")).pack(side="left", padx=10)
         tk.Label(leyenda_frame, text="■ Producto Caducado", fg="#f1c40f", font=("Arial", 9, "bold")).pack(side="left", padx=10)
+        tk.Label(leyenda_frame, text="■ Producto Próximo a Caducar", fg="#9b59b6", font=("Arial", 9, "bold")).pack(side="left", padx=10)
 
         # --- TABLA (TREEVIEW) ---
         cols = ("ID", "Nombre", "Categoría", "Stock", "Caducidad")
@@ -228,45 +242,11 @@ class InventarioModulo:
                 self.tree_inv.column(col, width=120, anchor="center")
         
         # Configuración de colores (Tags)
-        self.tree_inv.tag_configure("alerta_caducado", background="#f1c40f", foreground="black")
-        self.tree_inv.tag_configure("alerta_baja", background="#e74c3c", foreground="white")
+        self.tree_inv.tag_configure("alerta_caducado", background="#f1c40f", foreground="black") # Amarillo
+        self.tree_inv.tag_configure("alerta_baja", background="#e74c3c", foreground="white")    # Rojo
+        self.tree_inv.tag_configure("alerta_proximo", background="#9b59b6", foreground="white") # Púrpura
 
         self.tree_inv.pack(fill="both", expand=True, padx=10, pady=5)
         
         # Evento de selección
         self.tree_inv.bind("<<TreeviewSelect>>", self.seleccionar_item)
-
-    def cargar_inventario(self):
-        for item in self.tree_inv.get_children(): 
-            self.tree_inv.delete(item)
-        
-        productos = obtener_productos_inventario()
-        hoy = datetime.now().date()
-        caducados = []
-        bajos = []
-
-        for row in productos:
-            # row[3] es stock, row[4] es la fecha de caducidad
-            stock = row[3]
-            fecha_cad = row[4] # Asegúrate que en MySQL sea tipo DATE
-            
-            tag = ""
-            # Lógica de colores
-            if fecha_cad and fecha_cad < hoy:
-                tag = "alerta_caducado"
-                caducados.append(row[1])
-            elif stock < 5:
-                tag = "alerta_baja"
-                bajos.append(row[1])
-
-            self.tree_inv.insert("", "end", values=row, tags=(tag,))
-
-        # Alertas emergentes (Mejora de Claudia extendida)
-        mensaje_alerta = ""
-        if bajos:
-            mensaje_alerta += f"STOCK BAJO: {', '.join(bajos)}\n"
-        if caducados:
-            mensaje_alerta += f"PRODUCTOS CADUCADOS: {', '.join(caducados)}"
-        
-        if mensaje_alerta:
-            messagebox.showwarning("ALERTAS DE INVENTARIO", mensaje_alerta)
